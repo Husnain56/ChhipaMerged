@@ -1,0 +1,178 @@
+-- ==============================
+-- 1. USERS (Single Table, Direct Role)
+-- ==============================
+CREATE TABLE Users (
+    UserID INT IDENTITY(1,1) PRIMARY KEY,
+    Username VARCHAR(50) NOT NULL UNIQUE,
+    Password VARCHAR(50) NOT NULL,
+    Role VARCHAR(20) NOT NULL CHECK (Role IN ('Admin', 'Customer'))
+);
+
+-- ==============================
+-- 2. Customer 
+-- ==============================
+
+CREATE TABLE Customers (
+    CustomerID INT PRIMARY KEY,           -- same as Users.UserID
+    FullName VARCHAR(100) NOT NULL,
+    Email VARCHAR(100) NOT NULL UNIQUE,
+    PhoneNumber VARCHAR(20),
+    Address VARCHAR(255),
+    City VARCHAR(50),
+    FOREIGN KEY (CustomerID) REFERENCES Users(UserID)
+);
+
+
+-- ==============================
+-- 3. CARS
+-- ==============================
+CREATE TABLE Cars (
+    CarID INT IDENTITY(1,1) PRIMARY KEY,
+    CarName VARCHAR(100) NOT NULL,
+    Manufacturer VARCHAR(50),
+    ModelYear INT,
+    Price DECIMAL(18,2) NOT NULL,
+    Stock INT NOT NULL DEFAULT 0,
+    Active BIT DEFAULT 1
+);
+
+
+
+
+-- ==============================
+-- 4. SALES
+-- ==============================
+CREATE TABLE Sales (
+    SaleID INT IDENTITY(1,1) PRIMARY KEY,
+    UserID INT NOT NULL,
+    CarID INT NOT NULL,
+    SaleDate DATETIME NOT NULL DEFAULT GETDATE(),
+    CarPriceAtSale DECIMAL(18,2) NOT NULL,
+    TotalAmount DECIMAL(18,2) NOT NULL,
+    FOREIGN KEY (UserID) REFERENCES Users(UserID),
+    FOREIGN KEY (CarID) REFERENCES Cars(CarID)
+);
+
+
+
+-- ==============================
+-- 4. Bookings
+-- ==============================
+CREATE TABLE Bookings (
+    BookingID INT IDENTITY(1,1) PRIMARY KEY,
+    UserID INT NOT NULL,
+    CarID INT NOT NULL,
+    BookingDate DATETIME DEFAULT GETDATE()
+    BookingStatus VARCHAR(10) CHECK IN ('Admin', 'Customer'),
+    FOREIGN KEY (UserID) REFERENCES Users(UserID),
+    FOREIGN KEY (CarID) REFERENCES Cars(CarID)
+);
+
+
+
+
+--------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------
+
+--login user---
+-- Get user by username
+SELECT UserID, Username, PasswordHash, Role
+FROM Users
+WHERE Username = @Username;
+----------------------------------------------
+
+
+---Customer DL Queries
+-- Get all cars in stock
+SELECT CarID, CarName, Brand, ModelYear, BasePrice, Speed, Acceleration, Handling, Stock
+FROM Cars
+WHERE Stock > 0;
+---------------------------------------------------------------
+-- Create sale record
+INSERT INTO Sales (UserID, CarID, SaleDate, CarPriceAtSale, DiscountApplied, TotalAmount)
+VALUES (@UserID, @CarID, GETDATE(), @CarPriceAtSale, @DiscountApplied, @TotalAmount);
+
+SELECT SCOPE_IDENTITY() AS SaleID;;
+---------------------------------------------------------------------------------------------
+-- Decrease car stock
+UPDATE Cars
+SET Stock = Stock - 1
+WHERE CarID = @CarID;
+--------------------------------------------------------------------------------------------
+-- Get all sales for a customer
+SELECT s.SaleID, s.SaleDate, s.CarID, s.CarPriceAtSale, s.DiscountApplied, s.TotalAmount,
+       c.CarName, c.Brand, c.ModelYear
+FROM Sales s
+INNER JOIN Cars c ON s.CarID = c.CarID
+WHERE s.UserID = @UserID
+ORDER BY s.SaleDate DESC;
+-----------------------------------------------------------------------------------------------
+
+
+
+-----Admin DL Queries---------------------------------------------------------------------
+-- Get all cars
+SELECT CarID, CarName, Brand, ModelYear, BasePrice, Speed, Acceleration, Handling, Stock
+FROM Cars
+----------------------------------------------------------------------------------------------
+-- Update only car price
+UPDATE Cars
+SET BasePrice = @BasePrice
+WHERE CarID = @CarID;
+------------------------------------------------------------------------------------------------
+-- Add stock to car
+UPDATE Cars
+SET Stock = Stock + @Quantity
+WHERE CarID = @CarID;
+------------------------------------------------------------------------------------------------
+-- Get all sales
+SELECT s.SaleID, s.UserID, s.CarID, s.SaleDate, s.TotalAmount,u.Username, c.CarName, c.Manufacturer FROM Sales s INNER JOIN Users u ON s.UserID = u.UserID INNER JOIN Cars c ON s.CarID = c.CarID ORDER BY s.SaleDate DESC;
+-----------------------------------------------------------------------------------------------
+-- Get total revenue
+SELECT SUM(TotalAmount) AS TotalRevenue,
+       COUNT(SaleID) AS TotalSales
+FROM Sales;
+-----------------------------------------------------------------------------------------------
+-- Get revenue per car
+SELECT c.CarID, c.CarName, c.Brand,
+       COUNT(s.SaleID) AS UnitsSold,
+       SUM(s.TotalAmount) AS Revenue
+FROM Cars c
+LEFT JOIN Sales s ON c.CarID = s.CarID
+GROUP BY c.CarID, c.CarName, c.Brand
+ORDER BY Revenue DESC;
+----------------------------------------------------------------------------------------------------
+-- Get monthly revenue
+SELECT YEAR(SaleDate) AS Year,
+       MONTH(SaleDate) AS Month,
+       COUNT(SaleID) AS TotalSales,
+       SUM(TotalAmount) AS MonthlyRevenue
+FROM Sales
+GROUP BY YEAR(SaleDate), MONTH(SaleDate)
+ORDER BY Year DESC, Month DESC;
+------------------------------------------------------------------------------------------------
+-- Create customer user
+INSERT INTO Users (Username, PasswordHash, Role)
+VALUES (@Username, @PasswordHash, 'Customer');
+
+SELECT SCOPE_IDENTITY() AS UserID;
+------------------------------------------------------------------------------------------
+-- Get customers ordered by total amount spent
+SELECT 
+    u.UserID,
+    u.Username,
+    cd.FullName,
+    cd.Email,
+    cd.PhoneNumber,
+    cd.City,
+    cd.Country,
+    COUNT(s.SaleID) AS TotalPurchases,
+    SUM(s.TotalAmount) AS TotalSpent
+FROM Users u
+INNER JOIN CustomerDetails cd ON u.UserID = cd.CustomerID
+LEFT JOIN Sales s ON u.UserID = s.UserID
+WHERE u.Role = 'Customer'
+GROUP BY u.UserID, u.Username, cd.FullName, cd.Email, cd.PhoneNumber, cd.City, cd.Country
+ORDER BY TotalSpent DESC;
+---------------------------------------------------------------------------------------------
